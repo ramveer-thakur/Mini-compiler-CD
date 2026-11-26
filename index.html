@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mini Compiler | Compiler Design Project</title>
+<style>
+:root{--bg:#0b1020;--panel:#151d31;--panel2:#10182a;--text:#e8eefc;--muted:#9eabc5;--accent:#72a7ff;--green:#53d6a0;--red:#ff7b86;--border:#293653}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(135deg,#0b1020,#111a30);color:var(--text);font:15px system-ui,Arial,sans-serif}
+header{padding:20px 4%;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+h1{font-size:clamp(21px,4vw,30px);margin:0}header p{margin:4px 0 0;color:var(--muted);font-size:13px}
+.wrap{max-width:1200px;margin:auto;padding:18px 4% 35px}.toolbar{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px}
+button{border:0;border-radius:9px;padding:11px 16px;font-weight:700;cursor:pointer;background:var(--accent);color:#081326}
+button.secondary{background:#263653;color:var(--text)}button:hover{filter:brightness(1.1)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{background:var(--panel);border:1px solid var(--border);border-radius:13px;overflow:hidden;min-width:0}
+.panel h2{font-size:15px;margin:0;padding:13px 15px;border-bottom:1px solid var(--border)}
+textarea{display:block;width:100%;min-height:340px;resize:vertical;background:#0b1222;color:#e8eefc;border:0;outline:none;padding:16px;font:14px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;tab-size:2}
+#output{padding:14px;min-height:340px;max-height:600px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.6 ui-monospace,Consolas,monospace;color:#d9e5fa}
+.status{padding:10px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:13px}.good{color:var(--green)}.bad{color:var(--red)}
+.help{margin-top:14px;padding:15px;background:var(--panel2);border:1px solid var(--border);border-radius:12px;color:var(--muted);font-size:13px;line-height:1.6}
+code{color:#b9d2ff}.tag{display:inline-block;padding:4px 8px;border-radius:20px;background:#20314f;color:#c8dcff;font-size:11px;margin:2px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}textarea{min-height:260px}#output{min-height:260px}header{align-items:flex-start}}
+</style>
+</head>
+<body>
+<header><div><h1>⚙ MINI COMPILER</h1><p>Compiler Design Project · Lexical · Syntax · Semantic · Intermediate Code</p></div><span class="tag">Mobile-friendly · Runs in browser</span></header>
+<main class="wrap">
+<div class="toolbar">
+<button id="runBtn">▶ Compile &amp; Run</button>
+<button class="secondary" id="exampleBtn">Load Example</button>
+<button class="secondary" id="clearBtn">Clear</button>
+</div>
+<div class="grid">
+<section class="panel"><h2>Source Code</h2><textarea id="source" spellcheck="false">let a = 10;
+let b = 20;
+let c = a + b * 2;
+print c;</textarea><div class="status">Write your program in the MiniLang language.</div></section>
+<section class="panel"><h2>Compiler Output</h2><div id="output">Click “Compile &amp; Run” to compile your program.</div><div class="status" id="status">Ready</div></section>
+</div>
+<div class="help"><b>Supported MiniLang syntax</b><br>
+<code>let x = 10;</code> declare a variable · <code>x = x + 5;</code> update a variable · <code>print x;</code> display output.<br>
+Operators: <code>+ - * / &lt; &gt; == !=</code> · Parentheses: <code>( )</code> · Every statement ends with <code>;</code>.<br>
+<b>Compiler stages:</b> Tokenization → Recursive-descent Parsing → Semantic checks → Three-address code → Python-like code generation → AST execution.
+</div>
+</main>
+<script>
+"use strict";
+class CompileError extends Error {}
+const tokenPattern = /\s+|\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_]*|==|!=|[+\-*/=<>;()]/y;
+function tokenize(src){
+  const out=[]; let i=0;
+  while(i<src.length){
+    tokenPattern.lastIndex=i; const m=tokenPattern.exec(src);
+    if(!m) throw new CompileError(`Lexical Error: Unexpected character ${JSON.stringify(src[i])} at position ${i}.`);
+    const v=m[0]; i=tokenPattern.lastIndex;
+    if(/^\s+$/.test(v)) continue;
+    let type;
+    if(/^\d/.test(v)) type="NUMBER";
+    else if(/^[A-Za-z_]/.test(v)) type=["let","print"].includes(v)?"KEYWORD":"IDENT";
+    else type="OP";
+    out.push({type,value:v,pos:m.index});
+  }
+  out.push({type:"EOF",value:"",pos:src.length}); return out;
+}
+class Parser{
+  constructor(tokens){this.t=tokens;this.i=0}
+  cur(){return this.t[this.i]}
+  accept(v=null,type=null){const x=this.cur();if((v===null||x.value===v)&&(type===null||x.type===type)){this.i++;return x}return null}
+  expect(v=null,type=null,msg="Unexpected token"){const x=this.accept(v,type);if(!x){const got=this.cur().value||"end of input";throw new CompileError(`Syntax Error: ${msg}; found ${JSON.stringify(got)}.`)}return x}
+  parse(){const body=[];while(this.cur().type!=="EOF")body.push(this.statement());return {kind:"program",body}}
+  statement(){
+    if(this.accept("let")){const name=this.expect(null,"IDENT","Expected variable name").value;this.expect("=" ,null,"Expected '='");const expr=this.expression();this.expect(";");return {kind:"let",name,expr}}
+    if(this.accept("print")){const expr=this.expression();this.expect(";");return {kind:"print",expr}}
+    if(this.cur().type==="IDENT"){const name=this.cur().value;this.i++;this.expect("=" ,null,"Expected '=' in assignment");const expr=this.expression();this.expect(";");return {kind:"assign",name,expr}}
+    throw new CompileError(`Syntax Error: Expected let, print, or assignment; found ${JSON.stringify(this.cur().value||"end of input")}.`)
+  }
+  expression(){let n=this.addition();if(["<",">","==","!="].includes(this.cur().value)){const op=this.cur().value;this.i++;n={kind:"binary",op,left:n,right:this.addition()}}return n}
+  addition(){let n=this.multiplication();while(["+","-"].includes(this.cur().value)){const op=this.cur().value;this.i++;n={kind:"binary",op,left:n,right:this.multiplication()}}return n}
+  multiplication(){let n=this.unary();while(["*","/"].includes(this.cur().value)){const op=this.cur().value;this.i++;n={kind:"binary",op,left:n,right:this.unary()}}return n}
+  unary(){if(["+","-"].includes(this.cur().value)){const op=this.cur().value;this.i++;return {kind:"unary",op,expr:this.unary()}}return this.primary()}
+  primary(){
+    const num=this.accept(null,"NUMBER");if(num)return {kind:"number",value:num.value.includes(".")?Number(num.value):parseInt(num.value,10)};
+    const id=this.accept(null,"IDENT");if(id)return {kind:"variable",name:id.value};
+    if(this.accept("(")){const n=this.expression();this.expect(")","", "Expected ')'");return n}
+    throw new CompileError(`Syntax Error: Expected number, variable, or '('; found ${JSON.stringify(this.cur().value||"end of input")}.`)
+  }
+}
+function analyze(ast){
+  const env=Object.create(null),tac=[],prints=[],temps={n:0};
+  function expr(n){
+    if(n.kind==="number")return {value:n.value,place:String(n.value)};
+    if(n.kind==="variable"){if(!Object.hasOwn(env,n.name))throw new CompileError(`Semantic Error: Variable '${n.name}' is used before declaration.`);return {value:env[n.name],place:n.name}}
+    if(n.kind==="unary"){const a=expr(n.expr),v=n.op==="-"?-a.value:+a.value,t=`t${++temps.n}`;tac.push(`${t} = ${n.op}${a.place}`);return {value:v,place:t}}
+    if(n.kind==="binary"){
+      const a=expr(n.left),b=expr(n.right);let v;
+      try{switch(n.op){case "+":v=a.value+b.value;break;case "-":v=a.value-b.value;break;case "*":v=a.value*b.value;break;case "/":if(b.value===0)throw new CompileError("Runtime Error: Division by zero.");v=a.value/b.value;break;case "<":v=a.value<b.value;break;case ">":v=a.value>b.value;break;case "==":v=a.value===b.value;break;case "!=":v=a.value!==b.value;break;}}
+      catch(e){if(e instanceof CompileError)throw e;throw new CompileError("Semantic Error: Incompatible values in expression.")}
+      const t=`t${++temps.n}`;tac.push(`${t} = ${a.place} ${n.op} ${b.place}`);return {value:v,place:t}
+    }
+  }
+  for(const s of ast.body){
+    if(s.kind==="let"){if(Object.hasOwn(env,s.name))throw new CompileError(`Semantic Error: Variable '${s.name}' is already declared.`);const r=expr(s.expr);env[s.name]=r.value;tac.push(`${s.name} = ${r.place}`)}
+    else if(s.kind==="assign"){if(!Object.hasOwn(env,s.name))throw new CompileError(`Semantic Error: Variable '${s.name}' is not declared.`);const r=expr(s.expr);env[s.name]=r.value;tac.push(`${s.name} = ${r.place}`)}
+    else if(s.kind==="print"){const r=expr(s.expr);prints.push(String(r.value));tac.push(`PRINT ${r.place}`)}
+  }
+  return {env,tac,prints};
+}
+function pyExpr(n){if(n.kind==="number")return String(n.value);if(n.kind==="variable")return n.name;if(n.kind==="unary")return `(${n.op}${pyExpr(n.expr)})`;return `(${pyExpr(n.left)} ${n.op} ${pyExpr(n.right)})`}
+function generate(ast){return ast.body.map(s=>s.kind==="let"?`${s.name} = ${pyExpr(s.expr)}`:s.kind==="assign"?`${s.name} = ${pyExpr(s.expr)}`:`print(${pyExpr(s.expr)})`).join("\n")}
+function compile(source){
+  const tokens=tokenize(source),ast=new Parser(tokens).parse(),result=analyze(ast);
+  const tokenText=tokens.filter(t=>t.type!=="EOF").map(t=>`${t.type.padEnd(9)} ${t.value}`).join("\n")||"(no tokens)";
+  const tacText=result.tac.join("\n")||"(empty)";
+  const py=generate(ast)||"(empty)";
+  const table=Object.keys(result.env).map(k=>`${k} = ${result.env[k]} (${typeof result.env[k]})`).join("\n")||"(empty)";
+  return `1. LEXICAL ANALYSIS — SUCCESS\n${tokenText}\n\n2. SYNTAX ANALYSIS — SUCCESS\nGrammar is valid; Abstract Syntax Tree created.\n\n3. SEMANTIC ANALYSIS — SUCCESS\nVariables and expressions are valid.\n\n4. INTERMEDIATE CODE (THREE-ADDRESS CODE)\n${tacText}\n\n5. GENERATED PYTHON-LIKE CODE\n${py}\n\n6. PROGRAM OUTPUT\n${result.prints.join("\n")||"(no print output)"}\n\n7. SYMBOL TABLE\n${table}`;
+}
+const sourceEl=document.getElementById("source"),out=document.getElementById("output"),status=document.getElementById("status");
+document.getElementById("runBtn").addEventListener("click",()=>{try{out.textContent=compile(sourceEl.value);status.textContent="✓ Compilation successful";status.className="status good"}catch(e){out.textContent=e.message;status.textContent="✕ Compilation failed";status.className="status bad"}});
+document.getElementById("exampleBtn").addEventListener("click",()=>{sourceEl.value="let a = 10;\nlet b = 20;\nlet c = a + b * 2;\nprint c;\n";status.textContent="Example loaded";status.className="status"});
+document.getElementById("clearBtn").addEventListener("click",()=>{sourceEl.value="";out.textContent="Click “Compile & Run” to compile your program.";status.textContent="Ready";status.className="status"});
+</script>
+</body>
+</html>
